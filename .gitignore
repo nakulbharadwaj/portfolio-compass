@@ -1,0 +1,23 @@
+# ---------------------------------------------------------------------------
+# Secrets. Never commit these.
+# brevo.key holds a live send-only API key. If it is ever committed, rotate it
+# immediately at https://app.brevo.com/settings/keys/api rather than just
+# deleting the file, because git history keeps it.
+# ---------------------------------------------------------------------------
+brevo.key
+*.key
+*.pem
+config.local.json
+
+# ---------------------------------------------------------------------------
+# Runtime state. Machine-specific and regenerated automatically.
+# ---------------------------------------------------------------------------
+state.json
+logs/
+*.log
+
+# ---------------------------------------------------------------------------
+# Scratch output written while composing an alert.
+# ---------------------------------------------------------------------------
+portfolio-alert.html
+*.tmp
