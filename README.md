@@ -1,11 +1,12 @@
-# Richter
+# Portfolio Compass
 
-*A magnitude scale for your portfolio.*
+*Know where you stand, and when the ground shifts.*
 
-Polls a Robinhood brokerage account during US market hours and emails an alert
-**only** when the day's move crosses ±1%. Silent on every ordinary day. Alerts are
-graded by magnitude band — 1, 2, 3 — so a deepening move escalates instead of
-spamming.
+Portfolio analytics and swing alerting for a Robinhood brokerage account.
+
+Polls the account during US market hours and emails an alert **only** when the
+day's move crosses ±1%. Silent on every ordinary day. Alerts are graded by
+magnitude band — 1, 2, 3 — so a deepening move escalates instead of spamming.
 
 Built 2026-09-06. Account monitored: **••••9982** (main individual brokerage only —
 the IRA, managed and Agentic accounts are deliberately excluded).
