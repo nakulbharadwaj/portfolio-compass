@@ -35,7 +35,7 @@ $promptFile = Join-Path $root "check-prompt.md"
 if (-not (Test-Path $promptFile)) { Write-Log "FATAL: check-prompt.md missing"; exit 1 }
 $prompt = [System.IO.File]::ReadAllText($promptFile)
 if ($ForceBandOverride -ge 0) {
-    $prompt += "`n`n## TEST OVERRIDE`nThis is a manual test of the email path.`n- Ignore the threshold in Step 2 and ignore the state file entirely.`n- Ignore the 'SKIP stale data' rule: if the market is closed, use the most recent session's data and say so in the email.`n- Produce the alert email exactly as you normally would, so the full path is exercised.`n- Put 'TEST' at the start of the subject line.`n- Do not update the state file."
+    $prompt += "`n`n## TEST OVERRIDE`nThis is a manual test of the email path.`n- Ignore the threshold in Step 2 and ignore the state file entirely.`n- Ignore the 'SKIP stale data' rule: if the market is closed, use the most recent session's data and say so in the email.`n- Produce the alert email exactly as you normally would, so the full path is exercised.`n- Put 'TEST' at the start of the EMAIL SUBJECT LINE only.`n- Still print your final confirmation using the exact format from Step 5 (e.g. `ALERT SENT pct=X.XX band=N`) so this test run is verifiable the same way a real alert is - do not rename or reword that line.`n- Do not update the state file."
 }
 
 # Only the read tools this job needs. Trading tools are deliberately absent, so an
@@ -47,6 +47,7 @@ $tools = @(
     "mcp__robinhood-trading__get_earnings_calendar"
     "Read"
     "Write"
+    "Edit"
     "Bash"
 ) -join ","
 

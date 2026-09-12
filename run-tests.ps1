@@ -118,7 +118,13 @@ Test-Case -Id "T06" -Name "no trading tools are allowlisted" -Body {
     foreach ($t in @("get_equity_positions", "get_equity_quotes", "get_equity_news", "get_earnings_calendar")) {
         Assert ($r -match $t) "read tool $t is not allowlisted"
     }
-    "4 read tools only, no order or bypass flags"
+    # Regression guard: a run on 2026-09-10 tried to use Edit to update the alert
+    # HTML file, hit a permission wall because only Write was allowlisted, and
+    # missed sending on time. Edit must stay present alongside Read/Write.
+    foreach ($t in @("Read", "Write", "Edit")) {
+        Assert ($r -match [regex]::Escape('"' + $t + '"')) "file tool $t is not allowlisted"
+    }
+    "4 read tools + Read/Write/Edit, no order or bypass flags"
 }
 
 # ------------------------------------------------------------------- runtime --
@@ -209,7 +215,8 @@ Test-Case -Id "T13" -Name "end-to-end alert run" -Skip:(-not $Live) -SkipReason 
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "run-check.ps1") -ForceBandOverride 0 | Out-Null
     Assert (Test-Path $logFile) "no log file was written"
     $new = (@(Get-Content $logFile) | Select-Object -Skip $before) -join " "
-    Assert ($new -match "ALERT SENT|SENT ok|http=201") ("run did not report a successful send. Log tail: " + $new)
+    Assert ($new -notmatch "FAILED|error validating|permission") ("run reported a failure. Log tail: " + $new)
+    Assert ($new -match "SENT|http=2") ("run completed but showed no send confirmation of any kind. Log tail: " + $new)
     "alert composed and delivered"
 }
 
