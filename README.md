@@ -54,6 +54,7 @@ snapshot file is needed — the previous close arrives with the quote.
 | `send-email.ps1` | Sends one email through the Brevo API. Used by the alert path and reusable standalone. |
 | `brevo.key` | Brevo API key. Send-only scope. Never printed, never placed on a command line. |
 | `state.json` | Written by the alert logic: `{"date":"YYYY-MM-DD","last_band":N}`. Suppresses duplicate alerts within a day. |
+| `health.json` | Written by the health check: `{"consecutive_fails":N,"alert_sent_at":"<ISO-8601>"}`. Tracks the checker's own uptime, separate from `state.json`. |
 | `run-tests.ps1` | Test suite. See below. |
 | `logs\check-YYYY-MM-DD.log` | One line per run, one file per day. |
 
@@ -77,6 +78,50 @@ sign flipped.
 | 15:45 | −1.1% | −1 | silent (already covered) |
 
 State resets automatically each day.
+
+---
+
+## Health check (watching the checker itself)
+
+Added 2026-10-11, after an Avast antivirus bug silently broke the Robinhood
+connection for about two weeks (2026-09-28 to 2026-10-11) with zero emails and no
+way to notice short of realizing the silence yourself and digging through logs.
+The portfolio-alert logic above only ever fires when it *can* measure a move — it
+has no way to tell you when it can't measure anything at all. This closes that gap.
+
+**How it works.** `run-check.ps1` classifies every single run as healthy or
+unhealthy using an **allowlist**, not a denylist: a run only counts as healthy if
+it exits 0 *and* its final line matches one of `NO ALERT pct=`, `ALERT SENT pct=`,
+`TEST SENT pct=`, or `SKIP stale data` (a closed market — correctly healthy, not a
+failure). Anything else — including a brand-new failure message never seen before —
+is treated as unhealthy by default. That matters: the Avast incident alone produced
+at least four different failure phrasings ("OAuth session expired...", "the
+robinhood-trading MCP server failed to connect...", plain `InvalidHTTPResponse`
+text, and others). A fixed list of known-bad strings would have missed most of
+them; the allowlist can't be fooled by a new one.
+
+**Escalation, same banding idea as the portfolio alert:**
+
+| Consecutive failed polls | Elapsed | Action |
+|---|---|---|
+| 1–2 | up to 30 min | silent (rules out a single transient blip) |
+| 3 | 45 min | **first DOWN alert** |
+| 4+ | — | silent until 4 hours since the last alert, then **reminder** |
+| back to healthy | — | **one RECOVERED email**, counters reset |
+
+This logic lives entirely in `run-check.ps1`'s own PowerShell, deliberately *not*
+decided by the Claude agent — if the agent or the MCP connection is what's broken
+(exactly what happened in October), it may never get far enough to report its own
+failure. The health check runs unconditionally after every invocation, succeed or
+fail, so it can't be silenced by the same failure it exists to catch.
+
+**Test it:**
+```powershell
+powershell -ExecutionPolicy Bypass -File run-check.ps1 -HealthTest
+```
+Simulates one failure landing exactly on the threshold (no real outage needed, no
+real check runs) and sends a genuine DOWN email. Run a normal check afterward (or
+just wait for the next poll) to see the RECOVERED email too.
 
 ---
 
@@ -104,16 +149,21 @@ while logged in.
 ## Testing
 
 ```powershell
-# fast, safe, sends nothing (11 checks)
+# fast, safe, sends nothing (13 checks)
 powershell -ExecutionPolicy Bypass -File run-tests.ps1
 
-# adds a real email send and a full end-to-end alert run (~2 min)
+# adds 3 real email sends and two full end-to-end runs (~2.5 min)
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Live
 ```
 
-Manual end-to-end alert, bypassing the threshold and the market-closed guard:
+Manual end-to-end portfolio alert, bypassing the threshold and the market-closed guard:
 ```powershell
 powershell -ExecutionPolicy Bypass -File run-check.ps1 -ForceBandOverride 0
+```
+
+Manual end-to-end health DOWN-alert, no real outage needed:
+```powershell
+powershell -ExecutionPolicy Bypass -File run-check.ps1 -HealthTest
 ```
 
 ---
@@ -138,7 +188,17 @@ powershell -ExecutionPolicy Bypass -File run-check.ps1 -ForceBandOverride 0
 
 **No emails at all** — check today's log first. If runs are absent entirely, the
 task may be disabled or you were logged out; if they say `NO ALERT`, the system is
-working and the market simply hasn't moved 1%.
+working and the market simply hasn't moved 1%. If you've gone 45+ minutes during
+market hours without a log entry matching the healthy pattern, the health check
+(above) should have already emailed you a DOWN alert — if even *that* never
+arrived, the failure is in email delivery itself (see the Brevo IP item below) or
+the task isn't running at all (`Get-ScheduledTask -TaskName "Portfolio 1pct Alert"`).
+
+**A "checker is DOWN" email arrived** — the system detected and reported its own
+failure, which is the point. Check the log snippet in the email, then the full log
+file, for the actual error. The 2026-10-11 incident (an antivirus TLS-interception
+bug breaking the Robinhood OAuth connection) is the reference case — see git history
+around that date for the full diagnostic trail if a new failure looks similar.
 
 **`FAILED http=401` with "unrecognised IP address"** — your public IP changed. The
 error prints the exact address; allowlist it at
@@ -187,7 +247,7 @@ and re-allowlist the IP.
         -Settings (New-ScheduledTaskSettingsSet -Hidden -StartWhenAvailable) -Force
    ```
 7. Confirm everything: `powershell -ExecutionPolicy Bypass -File run-tests.ps1`
-   should report 11 passed. Add `-Live` for the full 13.
+   should report 13 passed. Add `-Live` for the full 16.
 
 ## Known limitations
 
@@ -198,3 +258,12 @@ and re-allowlist the IP.
   high or your cost basis.
 - News attribution is best-effort. When no company-specific story exists, the email
   says so rather than guessing.
+- **The health check shares its only delivery channel with everything else.** If
+  Brevo itself is down, or this machine has no internet at all, the DOWN alert
+  can't be sent either — there's no second channel to fall back to. A silent
+  multi-day outage would most likely be a total network/power loss, which the
+  health check can't phone home about by definition.
+- The health check has no visibility into *why* the market data might be wrong in
+  a way that still exits 0 and matches the allowlist (e.g. a quote that's stale by
+  a few minutes rather than a full session) — it only catches hard failures where
+  the connector couldn't be reached or auth couldn't complete at all.

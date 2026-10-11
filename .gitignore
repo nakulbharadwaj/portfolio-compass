@@ -13,6 +13,7 @@ config.local.json
 # Runtime state. Machine-specific and regenerated automatically.
 # ---------------------------------------------------------------------------
 state.json
+health.json
 logs/
 *.log
 

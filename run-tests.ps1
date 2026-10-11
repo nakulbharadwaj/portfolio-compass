@@ -2,10 +2,11 @@
   run-tests.ps1 - test suite for the Portfolio +/-1% Alert system.
 
   Two modes:
-    (default)  11 fast checks. Reads files, validates config and the scheduled
+    (default)  13 fast checks. Reads files, validates config and the scheduled
                task, and confirms Brevo accepts the API key. Sends NO email.
-    -Live      adds T12 (a real email) and T13 (a full end-to-end alert run,
-               about 90 seconds) so the delivery path is exercised for real.
+    -Live      adds T12 (a real email), T13 (a full end-to-end alert run), and
+               T16 (a full end-to-end health DOWN-alert run) - about 2.5 min,
+               three real emails sent.
 
   Usage:
     powershell -ExecutionPolicy Bypass -File run-tests.ps1
@@ -218,6 +219,62 @@ Test-Case -Id "T13" -Name "end-to-end alert run" -Skip:(-not $Live) -SkipReason 
     Assert ($new -notmatch "FAILED|error validating|permission") ("run reported a failure. Log tail: " + $new)
     Assert ($new -match "SENT|http=2") ("run completed but showed no send confirmation of any kind. Log tail: " + $new)
     "alert composed and delivered"
+}
+
+# ------------------------------------------------------- health check -----
+
+Test-Case -Id "T14" -Name "health-check code present and uses an allowlist" -Body {
+    $r = Get-Content (Join-Path $root "run-check.ps1") -Raw
+    Assert ($r -match [regex]::Escape('$GOOD_PATTERN')) "the health allowlist pattern is missing"
+    Assert ($r -match [regex]::Escape('$FAIL_THRESHOLD')) "the failure threshold constant is missing"
+    Assert ($r -match [regex]::Escape('$REMINDER_HOURS')) "the reminder-interval constant is missing"
+    Assert ($r -match "HealthTest") "the -HealthTest switch is missing"
+    Assert ($r -match [regex]::Escape('SKIP stale data')) "a closed market must still count as healthy, not a failure"
+    "allowlist, thresholds and -HealthTest switch all present"
+}
+
+Test-Case -Id "T15" -Name "health.json round-trips" -Body {
+    $p = Join-Path $root "health.json"
+    $backup = $null
+    if (Test-Path $p) { $backup = [System.IO.File]::ReadAllText($p) }
+    try {
+        $probe = '{"consecutive_fails":2,"alert_sent_at":"2026-01-01T00:00:00.0000000Z"}'
+        [System.IO.File]::WriteAllText($p, $probe, (New-Object System.Text.UTF8Encoding($false)))
+        $back = Get-Content $p -Raw | ConvertFrom-Json
+        Assert ([int]$back.consecutive_fails -eq 2) "consecutive_fails did not round-trip"
+        Assert ($back.alert_sent_at -eq "2026-01-01T00:00:00.0000000Z") "alert_sent_at did not round-trip"
+        "write, read and parse ok"
+    }
+    finally {
+        if ($null -ne $backup) { [System.IO.File]::WriteAllText($p, $backup, (New-Object System.Text.UTF8Encoding($false))) }
+        elseif (Test-Path $p) { Remove-Item $p -Force }
+    }
+}
+
+Test-Case -Id "T16" -Name "HealthTest triggers a real DOWN alert" -Skip:(-not $Live) -SkipReason "pass -Live to run" -Body {
+    $healthFile = Join-Path $root "health.json"
+    $backup = $null
+    if (Test-Path $healthFile) { $backup = [System.IO.File]::ReadAllText($healthFile) }
+    $logFile = Join-Path (Join-Path $root "logs") ("check-" + (Get-Date -Format "yyyy-MM-dd") + ".log")
+    $before = 0
+    if (Test-Path $logFile) { $before = @(Get-Content $logFile).Count }
+    try {
+        # Start from a clean slate so this run is guaranteed to cross the threshold
+        # and actually send, rather than depending on whatever state happens to be
+        # sitting there from real production polling.
+        [System.IO.File]::WriteAllText($healthFile, '{"consecutive_fails":0,"alert_sent_at":null}', (New-Object System.Text.UTF8Encoding($false)))
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "run-check.ps1") -HealthTest | Out-Null
+        $new = (@(Get-Content $logFile) | Select-Object -Skip $before) -join " "
+        Assert ($new -match "health-email.*SENT ok") ("no down-alert email was confirmed sent. Log tail: " + $new)
+        $after = Get-Content $healthFile -Raw | ConvertFrom-Json
+        Assert ([int]$after.consecutive_fails -ge 3) "health.json was not updated to reflect the failure"
+        Assert ($null -ne $after.alert_sent_at) "alert_sent_at was not stamped after a successful send"
+        "down-alert sent and health.json updated"
+    }
+    finally {
+        if ($null -ne $backup) { [System.IO.File]::WriteAllText($healthFile, $backup, (New-Object System.Text.UTF8Encoding($false))) }
+        elseif (Test-Path $healthFile) { Remove-Item $healthFile -Force }
+    }
 }
 
 # ---------------------------------------------------------------- summary ----
