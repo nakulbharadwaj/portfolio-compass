@@ -77,8 +77,14 @@ else {
             $tools = @(
                 "mcp__robinhood-trading__get_equity_positions"
                 "mcp__robinhood-trading__get_equity_quotes"
-                "mcp__robinhood-trading__get_equity_news"
                 "mcp__robinhood-trading__get_earnings_calendar"
+                "mcp__robinhood-trading__get_equity_fundamentals"
+                # get_equity_news was removed from Robinhood's MCP server upstream
+                # (confirmed gone 2026-10-24 - it's absent from the full tool catalog).
+                # These three replace it as the stock-side research tools:
+                "mcp__robinhood-trading__get_equity_analyst_ratings"
+                "mcp__robinhood-trading__get_earnings_results"
+                "mcp__robinhood-trading__get_sec_filing_index"
                 "Read"
                 "Write"
                 "Edit"

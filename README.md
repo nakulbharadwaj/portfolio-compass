@@ -81,6 +81,41 @@ State resets automatically each day.
 
 ---
 
+## Why a move happened (ETFs and stocks are explained differently)
+
+Added 2026-10-24. Earlier, every mover got the same treatment: look up news on the
+ticker, and if nothing turned up, say "likely index/sector move" and stop. That's
+roughly right for a stock and close to useless for an ETF — a fund doesn't have
+earnings or a CEO, so "no company news found" was true of literally every ETF,
+every time, and told you nothing about what actually drove it.
+
+**Breadth read, first.** Before looking at any single ticker, the checker counts
+how many of your ~19 positions moved up, down, or stayed flat that day. Most of
+them moving together means a market/macro day — Fed, rates, a broad risk-on or
+risk-off move — not a story about any one holding. One or two positions doing
+almost all the work while the rest sit flat means a real single-name event worth
+digging into. This framing comes first in the email and free of charge — it's
+built from data Step 1 already has, not an extra tool call.
+
+**Then, type-aware research** on the top 5 dollar contributors, classified as
+stock or ETF/fund (a hardcoded table of your known holdings, with
+`get_equity_fundamentals` as a fallback for anything new):
+
+- **Stocks** get the obvious treatment — earnings, guidance, analyst actions,
+  M&A, legal/regulatory news.
+- **Broad or growth-tilt ETFs** (QQQ, SPY, SPYG, IVV, VONG, SPMO, DIA, AOA, IJH)
+  get tied back to their dominant constituents (QQQ/SPYG/VONG all ride mega-cap
+  tech — if NVDA or AAPL moved sharply, that's usually the real driver) or to the
+  breadth read, rather than a shrug.
+- **Commodity ETFs** (GLD, COPX) get explained through the actual commodity
+  driver — rates/dollar/safe-haven flows for gold, copper prices and industrial
+  demand for COPX — not "earnings," which commodities don't have.
+
+The email's "Why" section is now two groups, not one flat list: stock-specific
+moves and ETF/fund moves, each explained in the vocabulary that actually fits it.
+
+---
+
 ## Health check (watching the checker itself)
 
 Added 2026-10-11, after an Avast antivirus bug silently broke the Robinhood
@@ -170,10 +205,13 @@ powershell -ExecutionPolicy Bypass -File run-check.ps1 -HealthTest
 
 ## Safety properties
 
-- **No trading tools are reachable.** `run-check.ps1` allowlists exactly four read
-  tools (`get_equity_positions`, `get_equity_quotes`, `get_equity_news`,
-  `get_earnings_calendar`) plus `Read`, `Write`, `Bash`. An order call would be
-  denied, not silently permitted. Test T06 enforces this.
+- **No trading tools are reachable.** `run-check.ps1` allowlists exactly seven
+  read tools (`get_equity_positions`, `get_equity_quotes`, `get_earnings_calendar`,
+  `get_equity_fundamentals`, `get_equity_analyst_ratings`, `get_earnings_results`,
+  `get_sec_filing_index`) plus `Read`, `Write`, `Edit`, `Bash`. An order call
+  would be denied, not silently permitted. Test T06 enforces this — and also
+  asserts `get_equity_news` is absent, since Robinhood removed that tool from
+  the MCP server upstream (confirmed gone 2026-10-24).
 - **The API key never appears on a command line** (which would expose it in the
   process list). It is passed to curl through a temp config file, deleted in a
   `finally` block.

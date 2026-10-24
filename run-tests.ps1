@@ -116,7 +116,13 @@ Test-Case -Id "T06" -Name "no trading tools are allowlisted" -Body {
                    "dangerously-skip-permissions", "bypassPermissions")
     $found = @($forbidden | Where-Object { $r -match [regex]::Escape($_) })
     Assert ($found.Count -eq 0) ("DANGER - found: " + ($found -join ", "))
-    foreach ($t in @("get_equity_positions", "get_equity_quotes", "get_equity_news", "get_earnings_calendar")) {
+    # get_equity_news is deliberately absent from the ALLOWLIST ITSELF - Robinhood
+    # removed it from the MCP server upstream (confirmed gone 2026-10-24); these
+    # are its replacements. This checks for an actual "mcp__...__get_equity_news"
+    # allowlist entry, not just the substring anywhere in the file - the script's
+    # own explanatory comment about the removal necessarily contains that name too.
+    Assert ($r -notmatch [regex]::Escape('"mcp__robinhood-trading__get_equity_news"')) "get_equity_news is allowlisted but no longer exists on the server - remove it"
+    foreach ($t in @("get_equity_positions", "get_equity_quotes", "get_earnings_calendar", "get_equity_fundamentals", "get_equity_analyst_ratings", "get_earnings_results", "get_sec_filing_index")) {
         Assert ($r -match $t) "read tool $t is not allowlisted"
     }
     # Regression guard: a run on 2026-09-10 tried to use Edit to update the alert
@@ -125,7 +131,7 @@ Test-Case -Id "T06" -Name "no trading tools are allowlisted" -Body {
     foreach ($t in @("Read", "Write", "Edit")) {
         Assert ($r -match [regex]::Escape('"' + $t + '"')) "file tool $t is not allowlisted"
     }
-    "4 read tools + Read/Write/Edit, no order or bypass flags"
+    "7 read tools + Read/Write/Edit, no order or bypass flags, no dead get_equity_news"
 }
 
 # ------------------------------------------------------------------- runtime --
@@ -275,6 +281,22 @@ Test-Case -Id "T16" -Name "HealthTest triggers a real DOWN alert" -Skip:(-not $L
         if ($null -ne $backup) { [System.IO.File]::WriteAllText($healthFile, $backup, (New-Object System.Text.UTF8Encoding($false))) }
         elseif (Test-Path $healthFile) { Remove-Item $healthFile -Force }
     }
+}
+
+# --------------------------------------------------- explanation quality ----
+
+Test-Case -Id "T17" -Name "move explanation distinguishes ETFs from stocks" -Body {
+    $p = Get-Content (Join-Path $root "check-prompt.md") -Raw
+    Assert ($p -match "breadth read") "the breadth-read step (broad day vs idiosyncratic day) is missing"
+    Assert ($p -match [regex]::Escape("STOCK (an individual company) or ETF/FUND")) "the per-mover type classification step is missing"
+    Assert ($p -match "get_equity_fundamentals") "the fallback classifier for unrecognized tickers is missing"
+    foreach ($etf in @("QQQ", "GLD", "COPX")) {
+        Assert ($p -match [regex]::Escape("| $etf |")) "the classification table is missing $etf"
+    }
+    Assert ($p -match "Commodity ETFs") "commodity-specific reasoning (rates/dollar for gold, copper prices for COPX) is missing"
+    Assert ($p -match [regex]::Escape("Stock-specific moves")) "the email's Why section no longer groups stock moves separately from ETF moves"
+    Assert ($p -match [regex]::Escape("ETF / fund moves")) "the email's Why section no longer groups ETF moves separately from stock moves"
+    "breadth read, type classification, and grouped Why section all present"
 }
 
 # ---------------------------------------------------------------- summary ----
